@@ -1,0 +1,47 @@
+name: Gitea image build
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    env:
+      TAGS: "sqlite sqlite_unlock_notify"
+      CGO_EXTRA_CFLAGS: ""
+    runs-on: ubuntu-latest
+    container:
+      image: postgres:15
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Configure QEMU
+      uses: docker/setup-qemu-action@v2
+
+    - name: Configure Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Extract POSTGRES_CRON
+      id: extract_cron
+      run: echo "PCRON=$(echo ${{github.ref_name}} | awk -F '[-]' '{print $1}' | cut -d '.' -f 1)" >> $GITHUB_ENV
+
+    - name: Build and push docker image
+      uses: docker/build-push-action@v4
+      with:
+         context: .
+         file: ./Dockerfile
+         push: true
+         tags: tyr1k/postgres_cron_va:${{github.ref_name}}
+         build-args: |
+            POSTGRES_VERSION=${{github.ref_name}}
+            PCRON=${{ env.PCRON }}
+
+    - name: Check docker image
+      run: |
+        docker run --rm --name test_pg_cron tyr1k/postgres_cron_va:${{ github.ref_name }} &
+        sleep 5 
+        docker exec test_pg_cron psql -U postgres -d postgres -c "SELECT * FROM cron.job;"
+        docker rm -f test_pg_cron
